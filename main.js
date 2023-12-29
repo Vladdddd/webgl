@@ -5,14 +5,23 @@ let surface;
 let shProgram;
 let spaceball;
 
-const lines = 20;
+let x1 = -1;
+let x2 = 1;
+let y1 = -1;
+let y2 = 1;
 
-// Constructor
+const calcStepX = (x2 - x1) / 20;
+const calcStepY = (y2 - y1) / 20;
+
+function deg2rad(angle) {
+  return (angle * Math.PI) / 180;
+}
+
 function Model(name) {
   this.name = name;
   this.iVertexBuffer = gl.createBuffer();
   this.iNormalBuffer = gl.createBuffer();
-  this.segments = 20;
+  this.count = 0;
 
   this.BufferData = function (vertices, normals) {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.iVertexBuffer);
@@ -30,18 +39,10 @@ function Model(name) {
     gl.enableVertexAttribArray(shProgram.iAttribVertex);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.iNormalBuffer);
-    gl.vertexAttribPointer(shProgram.iAttribNormal, 3, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(shProgram.iAttribNormal, 3, gl.FLOAT, true, 0, 0);
     gl.enableVertexAttribArray(shProgram.iAttribNormal);
 
-    for (let i = 0; i < lines - 1; i++) {
-      for (let j = 0; j < lines; j++) {
-        gl.drawArrays(
-          gl.TRIANGLE_STRIP,
-          (i * lines + j) * this.segments,
-          2 * this.segments
-        );
-      }
-    }
+    gl.drawArrays(gl.TRIANGLE_STRIP - 1, 0, this.count);
   };
 }
 
@@ -50,28 +51,24 @@ function ShaderProgram(name, program) {
   this.prog = program;
 
   this.iAttribVertex = -1;
-  this.iAttribNormal = -1;
   this.iColor = -1;
   this.iModelViewProjectionMatrix = -1;
-  this.iNormalMatrix = -1;
-
-  this.lightPosLoc = -1;
 
   this.Use = function () {
-      gl.useProgram(this.prog);
-  }
+    gl.useProgram(this.prog);
+  };
 }
 
 function draw() {
   gl.clearColor(0, 0, 0, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  let projection = m4.perspective(Math.PI / 8, 1, 8, 12);
+  let projection = m4.perspective(Math.PI / 8, 1, 8, 20);
 
   let modelView = spaceball.getViewMatrix();
 
   let rotateToPointZero = m4.axisRotation([0.707, 0.707, 0], 0.7);
-  let translateToPointZero = m4.translation(0, 0, -10);
+  let translateToPointZero = m4.translation(0, 0, -12);
 
   let matAccum0 = m4.multiply(rotateToPointZero, modelView);
   let matAccum1 = m4.multiply(translateToPointZero, matAccum0);
@@ -80,89 +77,107 @@ function draw() {
 
   gl.uniformMatrix4fv(shProgram.iModelViewProjectionMatrix, false, modelViewProjection);
 
-  let modelviewInv = new Float32Array(16);
-  let normalmatrix = new Float32Array(16);
-  mat4Invert(modelViewProjection, modelviewInv);
-  mat4Transpose(modelviewInv, normalmatrix);
+  const normal = m4.identity();
+  m4.inverse(modelView, normal);
+  m4.transpose(normal, normal);
 
-  gl.uniformMatrix4fv(shProgram.iNormalMatrix, false, normalmatrix);
+  gl.uniformMatrix4fv(shProgram.iNormalMatrix, false, normal);
 
   gl.uniform4fv(shProgram.iColor, [1, 1, 0, 1]);
-  
-  gl.uniform3fv(shProgram.lightPosLoc, [1 * Math.cos(Date.now() * 0.0005), 1, 1 * Math.sin(Date.now() * 0.0005)]);
 
   surface.Draw();
 }
 
-function animate(){
-  draw()
-  window.requestAnimationFrame(animate)
-}
-
 function CreateShoeSurfaceData() {
   let vertexList = [];
-  let normalList = [];
 
-  const min = -Math.PI / 3;
-  const max = Math.PI / 3;
-  const step = (Math.abs(min) + max) / lines;
-
-  for (let i = min; i < max; i += step) {
-    for (let j = min; j < max; j += step) {
-      const vertex = [i, j, i ** 3 / 3 - j ** 2 / 2];
-      const nextVertex = [i + step, j, (i + step) ** 3 / 3 - j ** 2 / 2];
-
-      vertexList.push(...vertex);
-      vertexList.push(...nextVertex);
-
-      const tangent1 = [0, 0, 1];
-      const tangent2 = normalize([
-        nextVertex[0] - vertex[0],
-        nextVertex[1] - vertex[1],
-        nextVertex[2] - vertex[2],
-      ]);
-
-      const normal = normalize(cross(tangent1, tangent2));
-
-      normalList.push(...normal);
-      normalList.push(...normal);
+  for (let j = x1; j < x2 + calcStepX; j += calcStepX) {
+    for (let i = y1; i < y2 + calcStepY; i += calcStepY) {
+      vertexList.push(i, j, calculateZ(i, j));
+      vertexList.push(i + calcStepY, j, calculateZ(i + calcStepY, j));
+      vertexList.push(i, j + calcStepX, calculateZ(i, j + calcStepX));
+      vertexList.push(i, j + calcStepX, calculateZ(i, j + calcStepX));
+      vertexList.push(i + calcStepY, j, calculateZ(i + calcStepY, j));
+      vertexList.push(i + calcStepY, j + calcStepX, calculateZ(i + calcStepY, j + calcStepX));
     }
   }
-
-  return [vertexList, normalList];
+  return vertexList;
 }
 
-function cross(a, b) {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
+let calculateZ = function (x, y) {
+  return (x * x * x) / 3 - (y * y) / 2;
+};
+
+function CreateShoeNormalData() {
+  let normalList = [];
+
+  for (let j = x1; j < x2 + calcStepX; j += calcStepX) {
+    for (let i = y1; i < y2 + calcStepY; i += calcStepY) {
+      normalList.push(...calculateNormal(i, j, calcStepX, calcStepY));
+      normalList.push(...calculateNormal(i + calcStepY, j, calcStepX, calcStepY));
+      normalList.push(...calculateNormal(i, j + calcStepX, calcStepX, calcStepY));
+      normalList.push(...calculateNormal(i, j + calcStepX, calcStepX, calcStepY));
+      normalList.push(...calculateNormal(i + calcStepY, j, calcStepX, calcStepY));
+      normalList.push(...calculateNormal(i + calcStepY, j + calcStepX, calcStepX, calcStepY));
+    }
+  }
+  return normalList;
 }
 
-function normalize(vec) {
-  const length = Math.sqrt(vec[0] ** 2 + vec[1] ** 2 + vec[2] ** 2);
-  return [vec[0] / length, vec[1] / length, vec[2] / length];
+function calculateNormal(i, j, stepJ, stepI) {
+  let v0 = [i, j, calculateZ(i, j)];
+
+  let v1 = [i + stepI, j, calculateZ(i + stepI, j)];
+  let v01 = m4.subtractVectors(v1, v0);
+
+  let v2 = [i, j + stepJ, calculateZ(i, j + stepJ)];
+  let v02 = m4.subtractVectors(v2, v0);
+  let n1 = m4.normalize(m4.cross(v01, v02));
+
+  let v3 = [i - stepI, j + stepJ, calculateZ(i - stepI, j + stepJ)];
+  let v03 = m4.subtractVectors(v3, v0);
+  let n2 = m4.normalize(m4.cross(v02, v03));
+
+  let v4 = [i - stepI, j, calculateZ(i - stepI, j)];
+  let v04 = m4.subtractVectors(v4, v0);
+  let n3 = m4.normalize(m4.cross(v03, v04));
+
+  let v5 = [i - stepI, j - stepJ, calculateZ(i - stepI, j - stepJ)];
+  let v05 = m4.subtractVectors(v5, v0);
+  let n4 = m4.normalize(m4.cross(v04, v05));
+
+  let v6 = [i, j - stepJ, calculateZ(i, j - stepJ)];
+  let v06 = m4.subtractVectors(v6, v0);
+  let n5 = m4.normalize(m4.cross(v05, v06));
+
+  let n6 = m4.normalize(m4.cross(v06, v01));
+
+  const n01 = n1[0] + n2[0] + n3[0] + n4[0] + n5[0] + n6[0];
+  const n02 = n1[1] + n2[1] + n3[1] + n4[1] + n5[1] + n6[1];
+  const n03 = n1[2] + n2[2] + n3[2] + n4[2] + n5[2] + n6[2];
+
+  let n = [n01 / 6.0, n02 / 6.0, n03 / 6.0];
+
+  n = m4.normalize(n);
+  return n;
 }
 
 function initGL() {
   let prog = createProgram(gl, vertexShaderSource, fragmentShaderSource);
 
-  shProgram = new ShaderProgram('Basic', prog);
+  shProgram = new ShaderProgram("Basic", prog);
   shProgram.Use();
 
   shProgram.iAttribVertex = gl.getAttribLocation(prog, "vertex");
   shProgram.iAttribNormal = gl.getAttribLocation(prog, "normal");
   shProgram.iModelViewProjectionMatrix = gl.getUniformLocation(prog, "ModelViewProjectionMatrix");
   shProgram.iNormalMatrix = gl.getUniformLocation(prog, "NormalMatrix");
-  
   shProgram.iColor = gl.getUniformLocation(prog, "color");
-  shProgram.lightPosLoc = gl.getUniformLocation(prog, "lightPosition");
 
-
-  surface = new Model('Surface');
-  let data = CreateShoeSurfaceData();
-  surface.BufferData(data[0], data[1]);
+  surface = new Model("Surface");
+  const surfaceData = CreateShoeSurfaceData();
+  const normalData = CreateShoeNormalData();
+  surface.BufferData(surfaceData, normalData);
 
   gl.enable(gl.DEPTH_TEST);
 }
@@ -199,72 +214,18 @@ function init() {
       throw "Browser does not support WebGL";
     }
   } catch (e) {
-    document.getElementById("canvas-holder").innerHTML =
-      "<p>Sorry, could not get a WebGL graphics context.</p>";
+    document.getElementById("canvas-holder").innerHTML = "<p>Sorry, could not get a WebGL graphics context.</p>";
     return;
   }
   try {
-    initGL(); // initialize the WebGL graphics context
+    initGL();
   } catch (e) {
     document.getElementById("canvas-holder").innerHTML =
-      "<p>Sorry, could not initialize the WebGL graphics context: " +
-      e +
-      "</p>";
+      "<p>Sorry, could not initialize the WebGL graphics context: " + e + "</p>";
     return;
   }
 
   spaceball = new TrackballRotator(canvas, draw, 0);
-  window.requestAnimationFrame(animate)
+
+  draw();
 }
-
-function mat4Transpose(a, transposed) {
-  var t = 0;
-  for (var i = 0; i < 4; ++i) {
-      for (var j = 0; j < 4; ++j) {
-          transposed[t++] = a[j * 4 + i];
-      }
-  }
-}
-
-function mat4Invert(m, inverse) {
-  var inv = new Float32Array(16);
-  inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] +
-      m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
-  inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] -
-      m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
-  inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] +
-      m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
-  inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] -
-      m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
-  inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] -
-      m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
-  inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] +
-      m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
-  inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] -
-      m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
-  inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] +
-      m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
-  inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] +
-      m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
-  inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] -
-      m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
-  inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] +
-      m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
-  inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] -
-      m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
-  inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] -
-      m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
-  inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] +
-      m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
-  inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] -
-      m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
-  inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] +
-      m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
-
-  var det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
-  if (det == 0) return false;
-  det = 1.0 / det;
-  for (var i = 0; i < 16; i++) inverse[i] = inv[i] * det;
-  return true;
-}
-
