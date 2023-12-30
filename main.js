@@ -2,16 +2,17 @@
 
 let gl;
 let surface;
+let lighting;
 let shProgram;
 let spaceball;
 
-let x1 = -1;
-let x2 = 1;
-let y1 = -1;
-let y2 = 1;
+const x1 = -1;
+const x2 = 1;
+const y1 = -1;
+const y2 = 1;
 
-const calcStepX = (x2 - x1) / 20;
-const calcStepY = (y2 - y1) / 20;
+const calcStepX = (x2 - x1) / 30;
+const calcStepY = (y2 - y1) / 30;
 
 function deg2rad(angle) {
   return (angle * Math.PI) / 180;
@@ -85,7 +86,15 @@ function draw() {
 
   gl.uniform4fv(shProgram.iColor, [1, 1, 0, 1]);
 
+  const movement = Date.now() * 0.001;
+
+  sphereMoving(movement);
+  lightMoving(movement);
+
   surface.Draw();
+  gl.uniform1i(shProgram.iLighting, true);
+  lighting.Draw();
+  gl.uniform1i(shProgram.iLighting, false);
 }
 
 function CreateShoeSurfaceData() {
@@ -162,6 +171,51 @@ function calculateNormal(i, j, stepJ, stepI) {
   return n;
 }
 
+function animate() {
+  window.requestAnimationFrame(animate);
+  draw();
+}
+
+function sphereMoving(movement) {
+  gl.uniformMatrix4fv(shProgram.iTranslationMatrix, false, m4.translation(Math.cos(movement), Math.sin(movement), 0));
+}
+
+function lightMoving(movement) {
+  gl.uniform3fv(shProgram.iLightPosition, [Math.cos(movement), Math.sin(movement), 0]);
+}
+
+function CreateLightData() {
+  let vertexList = [];
+  const step = 0.5;
+
+  for (let phi = 0; phi < Math.PI; phi += step) {
+    for (let theta = 0; theta < Math.PI * 2; theta += step) {
+      let v1 = CreateSphereData(phi, theta);
+      let v2 = CreateSphereData(phi + step, theta);
+      let v3 = CreateSphereData(phi, theta + step);
+      let v4 = CreateSphereData(phi + step, theta + step);
+
+      vertexList.push(v1.x, v1.y, v1.z);
+      vertexList.push(v2.x, v2.y, v2.z);
+      vertexList.push(v3.x, v3.y, v3.z);
+
+      vertexList.push(v3.x, v3.y, v3.z);
+      vertexList.push(v2.x, v2.y, v2.z);
+      vertexList.push(v4.x, v4.y, v4.z);
+    }
+  }
+
+  return vertexList;
+}
+
+function CreateSphereData(phi, theta) {
+  const radius = 0.1;
+  const x = radius * Math.cos(phi) * Math.sin(theta);
+  const y = radius * Math.sin(phi) * Math.sin(theta);
+  const z = radius * Math.cos(theta);
+  return { x, y, z };
+}
+
 function initGL() {
   let prog = createProgram(gl, vertexShaderSource, fragmentShaderSource);
 
@@ -172,12 +226,18 @@ function initGL() {
   shProgram.iAttribNormal = gl.getAttribLocation(prog, "normal");
   shProgram.iModelViewProjectionMatrix = gl.getUniformLocation(prog, "ModelViewProjectionMatrix");
   shProgram.iNormalMatrix = gl.getUniformLocation(prog, "NormalMatrix");
+  shProgram.iTranslationMatrix = gl.getUniformLocation(prog, "TranslationMatrix");
   shProgram.iColor = gl.getUniformLocation(prog, "color");
+  shProgram.iLighting = gl.getUniformLocation(prog, "lighting");
+  shProgram.iLightPosition = gl.getUniformLocation(prog, "lightPos");
 
   surface = new Model("Surface");
   const surfaceData = CreateShoeSurfaceData();
   const normalData = CreateShoeNormalData();
   surface.BufferData(surfaceData, normalData);
+
+  lighting = new Model();
+  lighting.BufferData(CreateLightData(), CreateLightData());
 
   gl.enable(gl.DEPTH_TEST);
 }
@@ -228,4 +288,5 @@ function init() {
   spaceball = new TrackballRotator(canvas, draw, 0);
 
   draw();
+  animate();
 }
