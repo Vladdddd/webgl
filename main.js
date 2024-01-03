@@ -14,6 +14,9 @@ const y2 = 1;
 const calcStepX = (x2 - x1) / 30;
 const calcStepY = (y2 - y1) / 30;
 
+const url = "https://i.ibb.co/NjMdh9s/brick.jpg";
+const mainPoint = [0.0, 0.0];
+
 function deg2rad(angle) {
   return (angle * Math.PI) / 180;
 }
@@ -22,14 +25,18 @@ function Model(name) {
   this.name = name;
   this.iVertexBuffer = gl.createBuffer();
   this.iNormalBuffer = gl.createBuffer();
+  this.iTextureBuffer = gl.createBuffer();
   this.count = 0;
 
-  this.BufferData = function (vertices, normals) {
+  this.BufferData = function (vertices, normals, textures) {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.iVertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.iNormalBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STREAM_DRAW);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.iTextureBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textures), gl.STREAM_DRAW);
 
     this.count = vertices.length / 3;
   };
@@ -42,6 +49,10 @@ function Model(name) {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.iNormalBuffer);
     gl.vertexAttribPointer(shProgram.iAttribNormal, 3, gl.FLOAT, true, 0, 0);
     gl.enableVertexAttribArray(shProgram.iAttribNormal);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.iTextureBuffer);
+    gl.vertexAttribPointer(shProgram.iAttribTexture, 2, gl.FLOAT, true, 0, 0);
+    gl.enableVertexAttribArray(shProgram.iAttribTexture);
 
     gl.drawArrays(gl.TRIANGLE_STRIP - 1, 0, this.count);
   };
@@ -91,7 +102,16 @@ function draw() {
   sphereMoving(movement);
   lightMoving(movement);
 
+  gl.uniform2fv(shProgram.iPointPos, [map(mainPoint[0], x1, x2, 0, 1), map(mainPoint[1], y1, y2, 0, 1)]);
+  gl.uniform1f(shProgram.iScale, parseFloat(document.getElementById("scaler").value));
+  gl.uniform3fv(shProgram.iPointTranslation, [mainPoint[0], mainPoint[1], calculateZ(mainPoint[0], mainPoint[1])]);
+
   surface.Draw();
+  gl.uniformMatrix4fv(
+    shProgram.iModelViewProjectionMatrix,
+    false,
+    m4.multiply(modelViewProjection, m4.translation(mainPoint[0], mainPoint[1], calculateZ(mainPoint[0], mainPoint[1])))
+  );
   gl.uniform1i(shProgram.iLighting, true);
   lighting.Draw();
   gl.uniform1i(shProgram.iLighting, false);
@@ -176,8 +196,12 @@ function animate() {
   draw();
 }
 
-function sphereMoving(movement) {
-  gl.uniformMatrix4fv(shProgram.iTranslationMatrix, false, m4.translation(Math.cos(movement), Math.sin(movement), 0));
+function sphereMoving() {
+  gl.uniformMatrix4fv(
+    shProgram.iTranslationMatrix,
+    false,
+    m4.translation(mainPoint[0], mainPoint[1], calculateZ(mainPoint[0], mainPoint[1]))
+  );
 }
 
 function lightMoving(movement) {
@@ -216,6 +240,42 @@ function CreateSphereData(phi, theta) {
   return { x, y, z };
 }
 
+function CreateTextureData() {
+  let textureList = [];
+  for (let j = x1; j < x2 + calcStepX; j += calcStepX) {
+    for (let i = y1; i < y2 + calcStepY; i += calcStepY) {
+      textureList.push(map(i, y1, y2, 0, 1), map(j, x1, x2, 0, 1));
+      textureList.push(map(i + calcStepY, y1, y2, 0, 1), map(j, x1, x2, 0, 1));
+      textureList.push(map(i, y1, y2, 0, 1), map(j + calcStepX, x1, x2, 0, 1));
+      textureList.push(map(i, y1, y2, 0, 1), map(j + calcStepX, x1, x2, 0, 1));
+      textureList.push(map(i + calcStepY, y1, y2, 0, 1), map(j, x1, x2, 0, 1));
+      textureList.push(map(i + calcStepY, y1, y2, 0, 1), map(j + calcStepX, x1, x2, 0, 1));
+    }
+  }
+  return textureList;
+}
+
+function map(value, a, b, c, d) {
+  value = (value - a) / (b - a);
+  return c + value * (d - c);
+}
+
+function LoadTexture() {
+  let texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  const image = new Image();
+  image.crossOrigin = "anonymous";
+  image.src = url;
+  image.onload = () => {
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    draw();
+  };
+}
+
 function initGL() {
   let prog = createProgram(gl, vertexShaderSource, fragmentShaderSource);
 
@@ -224,20 +284,29 @@ function initGL() {
 
   shProgram.iAttribVertex = gl.getAttribLocation(prog, "vertex");
   shProgram.iAttribNormal = gl.getAttribLocation(prog, "normal");
+  shProgram.iAttribTexture = gl.getAttribLocation(prog, "texture");
+
   shProgram.iModelViewProjectionMatrix = gl.getUniformLocation(prog, "ModelViewProjectionMatrix");
   shProgram.iNormalMatrix = gl.getUniformLocation(prog, "NormalMatrix");
   shProgram.iTranslationMatrix = gl.getUniformLocation(prog, "TranslationMatrix");
   shProgram.iColor = gl.getUniformLocation(prog, "color");
   shProgram.iLighting = gl.getUniformLocation(prog, "lighting");
   shProgram.iLightPosition = gl.getUniformLocation(prog, "lightPos");
+  shProgram.iTMU = gl.getUniformLocation(prog, "tmu");
+  shProgram.iScale = gl.getUniformLocation(prog, "scaleFactor");
+  shProgram.iPointPos = gl.getUniformLocation(prog, "pointPos");
+  shProgram.iPointTranslation = gl.getUniformLocation(prog, "pointTranslation");
+
+  LoadTexture();
 
   surface = new Model("Surface");
   const surfaceData = CreateShoeSurfaceData();
   const normalData = CreateShoeNormalData();
-  surface.BufferData(surfaceData, normalData);
+  const textureData = CreateTextureData();
+  surface.BufferData(surfaceData, normalData, textureData);
 
   lighting = new Model();
-  lighting.BufferData(CreateLightData(), CreateLightData());
+  lighting.BufferData(CreateLightData(), CreateLightData(), CreateLightData());
 
   gl.enable(gl.DEPTH_TEST);
 }
@@ -278,7 +347,7 @@ function init() {
     return;
   }
   try {
-    initGL();
+    initGL(); // initialize the WebGL graphics context
   } catch (e) {
     document.getElementById("canvas-holder").innerHTML =
       "<p>Sorry, could not initialize the WebGL graphics context: " + e + "</p>";
@@ -290,3 +359,23 @@ function init() {
   draw();
   animate();
 }
+
+window.onkeydown = (e) => {
+  if (e.keyCode == 68) {
+    mainPoint[0] = Math.min(mainPoint[0] + calcStepX, x2);
+  }
+
+  if (e.keyCode == 83) {
+    mainPoint[1] = Math.max(mainPoint[1] - calcStepY, y1);
+  }
+
+  if (e.keyCode == 65) {
+    mainPoint[0] = Math.max(mainPoint[0] - calcStepX, x1);
+  }
+
+  if (e.keyCode == 87) {
+    mainPoint[1] = Math.min(mainPoint[1] + calcStepY, y2);
+  }
+  
+  draw();
+};

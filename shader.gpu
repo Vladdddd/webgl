@@ -2,6 +2,8 @@
 const vertexShaderSource = `
 attribute vec3 vertex;
 attribute vec3 normal;
+attribute vec2 texture;
+
 uniform mat4 ModelViewProjectionMatrix;
 uniform mat4 TranslationMatrix;
 uniform mat4 NormalMatrix;
@@ -9,16 +11,46 @@ varying vec4 color;
 uniform bool lighting;
 uniform vec3 lightPos;
 
+uniform vec2 pointPos;
+uniform float scaleFactor;
+varying vec2 varTexture;
+uniform vec3 pointTranslation;
+
 vec3 ambientColor = vec3(0.01, 0.1, 0.02);
 vec3 diffuseColor = vec3(0.11, 0.8, 0.13);
 vec3 specularColor = vec3(0.0, 0.0, 0.0);
 
 float shininess = 80.0;
 
+mat4 translation(float tx, float ty, float tz) {
+    return mat4 (
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        tx,  ty,  tz, 1.0
+    );
+}
+
+mat4 scaling(float s){
+    return mat4 (
+        s, 0.0, 0.0, 0.0,
+        0.0, s, 0.0, 0.0,
+        0.0, 0.0, s, 0.0,
+        0.0,  0.0,  0.0, 1.0
+    );
+}
+
+
 void main() {
+    vec4 tranlatedP = translation(-pointPos.x, -pointPos.y, 0.0) * vec4(texture, 0., 1.);
+    vec4 scaledP = scaling(scaleFactor) * tranlatedP;
+    vec4 finalTransformedP = translation(pointPos.x, pointPos.y, 0.0) * scaledP;
+    
+    varTexture = vec2(finalTransformedP.x,finalTransformedP.y);
+
     vec4 vertPos4 = ModelViewProjectionMatrix * vec4(vertex, 1.0);
     vec3 vertPos = vec3(vertPos4) / vertPos4.w;
-    vec4 norm = NormalMatrix*vec4(normal,1.0);
+    vec4 norm = NormalMatrix * vec4(normal,1.0);
     
     vec3 N = normalize(vec3(norm));
     vec3 L = normalize(lightPos - vertPos);
@@ -36,7 +68,7 @@ void main() {
     gl_Position = vertPos4;
 
     if(lighting){
-        gl_Position = TranslationMatrix*vertPos4;
+        gl_Position = vertPos4;
     }
 }`;
 
@@ -49,8 +81,16 @@ const fragmentShaderSource = `
    precision mediump float;
 #endif
 
+varying vec2 varTexture;
+
 varying vec4 color;
+uniform bool lighting;
+uniform sampler2D tmu;
 
 void main() {
-    gl_FragColor = color;
+    gl_FragColor = texture2D(tmu,varTexture);
+    
+    if(lighting) {
+        gl_FragColor = color;
+    }
 }`;
